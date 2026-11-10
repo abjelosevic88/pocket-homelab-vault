@@ -1,0 +1,7 @@
+# Pocket Vault behind Caddy. The Bitwarden apps need HTTPS; Caddy passes
+# the live-sync websocket (/notifications/hub) through as it is.
+vault.example.com {
+	reverse_proxy pocket-vault:8080 {
+		flush_interval -1
+	}
+}
