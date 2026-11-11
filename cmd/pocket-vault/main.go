@@ -130,7 +130,13 @@ func serve() {
 	}
 	go func() {
 		log.Info("pocket-vault started", "version", version, "addr", cfg.Addr(), "base_url", cfg.BaseURL, "db", cfg.DBPath, "auth_mode", cfg.AuthMode)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if cfg.TLSCert != "" {
+			err = httpSrv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = httpSrv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("http server", "err", err)
 			os.Exit(1)
 		}

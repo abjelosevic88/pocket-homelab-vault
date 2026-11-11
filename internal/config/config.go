@@ -25,6 +25,11 @@ type Config struct {
 	TrustProxy     bool
 	MetricsEnabled bool
 
+	// TLSCert/TLSKey serve HTTPS directly (the Bitwarden apps need it) when
+	// there is no reverse proxy in front.
+	TLSCert string
+	TLSKey  string
+
 	// MaxBodyBytes caps a JSON request (an export being imported).
 	MaxBodyBytes int64
 
@@ -134,6 +139,8 @@ func Load() (*Config, error) {
 		LogFormat:      strings.ToLower(env("LOG_FORMAT", "text")),
 		TrustProxy:     envBool("TRUST_PROXY", true),
 		MetricsEnabled: envBool("METRICS_ENABLED", true),
+		TLSCert:        env("TLS_CERT", ""),
+		TLSKey:         env("TLS_KEY", ""),
 
 		MaxBodyBytes: envInt64("MAX_BODY_BYTES", 64<<20),
 
@@ -179,6 +186,9 @@ func Load() (*Config, error) {
 	}
 	if c.Port <= 0 || c.Port > 65535 {
 		return nil, fmt.Errorf("PORT out of range: %d", c.Port)
+	}
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return nil, fmt.Errorf("TLS_CERT and TLS_KEY go together")
 	}
 	switch c.IconService {
 	case "internal", "duckduckgo", "google", "off":

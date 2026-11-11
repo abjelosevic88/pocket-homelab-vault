@@ -1,0 +1,40 @@
+name: Bitwarden apps compatibility
+
+# Every Monday (and by hand): the newest official Bitwarden CLI against a demo
+# vault. A red run means a Bitwarden update broke something here.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  bw-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build (API only is enough)
+        run: |
+          mkdir -p web/dist && touch web/dist/index.html
+          CGO_ENABLED=0 go build -o pocket-vault ./cmd/pocket-vault
+      - name: Newest Bitwarden CLI
+        run: npm install -g @bitwarden/cli@latest && bw --version
+      - name: Demo vault over HTTPS
+        run: |
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj /CN=localhost \
+            -addext subjectAltName=DNS:localhost -keyout key.pem -out cert.pem
+          DATA_DIR=$PWD/demo DEMO_DATA=true ADMIN_EMAIL=demo@example.com ADMIN_PASSWORD=demodemo1 PORT=18443 \
+            BASE_URL=https://localhost:18443 TLS_CERT=cert.pem TLS_KEY=key.pem ./pocket-vault > demo.log 2>&1 &
+          for i in $(seq 60); do curl -skf https://localhost:18443/healthz && break; sleep 1; done
+      - name: Sign in, sync, edit, bin, restore, delete
+        run: BASE=https://localhost:18443 NODE_EXTRA_CA_CERTS=$PWD/cert.pem node scripts/bw-compat.mjs
+      - name: Server log
+        if: failure()
+        run: tail -100 demo.log

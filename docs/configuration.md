@@ -14,6 +14,7 @@ Environment variables; every one has a default. Personal settings (locking, noti
 | `SESSION_TTL`, `SECURE_COOKIES` | `720h`, `false` | Set `SECURE_COOKIES=true` behind HTTPS |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_NAME`, `OIDC_AUTO_CREATE` | – | Sign in with an OpenID Connect provider (not needed with Pocket Core) |
 | `NOTIFY_URL`, `NOTIFY_FORMAT` | – | Apprise (`…/notify/key`), ntfy topic URL or JSON webhook; format `apprise`/`ntfy`/`json` |
+| `TLS_CERT`, `TLS_KEY` | – | Serve HTTPS directly (PEM files) when there's no reverse proxy — the Bitwarden apps only talk HTTPS |
 | `ACCESS_TOKEN_TTL` | `2h` | How long an app's access token lives (it renews itself; refresh tokens last 30 days, 90 on phones) |
 | `LOGIN_ATTEMPTS` | `10` | Wrong master passwords per address and 10 minutes before a pause (0 = no limit) |
 | `ICON_SERVICE` | `internal` | Website icons: `internal` (this server fetches the site's favicon, public addresses only), `duckduckgo`, `google`, `off` |

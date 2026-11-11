@@ -67,6 +67,7 @@ Set `CORE_URL` and `CORE_REGISTRATION_KEY` and Vault joins the box: people sign 
 ```sh
 make dev     # API on :8080 with a demo vault (master password: correct horse battery staple) + Vite on :5173
 make test    # go vet, go test, tsc
+node scripts/bw-compat.mjs   # the newest official Bitwarden CLI against a demo vault (see the file; weekly in CI)
 make         # web + binary
 ```
 
