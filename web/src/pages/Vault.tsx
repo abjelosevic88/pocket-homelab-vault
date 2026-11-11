@@ -230,7 +230,7 @@ function ItemBody({ it }: { it: Item }) {
       {it.type === TYPE_LOGIN && it.login && <LoginFields it={it} />}
       {it.type === TYPE_CARD && it.card && <section className="fields">
         <Row label="Cardholder" value={it.card.cardholderName} />
-        <Row label="Number" value={it.card.number} secret mono display={it.card.number.replace(/(.{4})/g, '$1 ').trim()} />
+        <Row label="Number" value={cardDigits(it.card.number)} secret mono display={groupCard(it.card.number)} />
         <Row label="Brand" value={it.card.brand} copy={false} />
         <Row label="Expires" value={it.card.expMonth || it.card.expYear ? `${it.card.expMonth.padStart(2, '0')} / ${it.card.expYear}` : ''} copy={false} extra={<Expiry it={it} />} />
         <Row label="Security code" value={it.card.code} secret mono />
@@ -351,6 +351,20 @@ function History({ it }: { it: Item }) {
       {open && it.history.map((h, i) => <Row key={i} label={fmtDate(h.lastUsedDate.slice(0, 10))} value={h.password} secret mono />)}
     </section>
   )
+}
+
+/** Just the digits of a card number (what a payment form wants), or the text as it is if it isn't one. */
+function cardDigits(n: string): string {
+  const d = n.replace(/[\s-]/g, '')
+  return /^\d+$/.test(d) ? d : n
+}
+
+/** A card number in its groups: 4-6-5 for American Express, otherwise fours. */
+function groupCard(n: string): string {
+  const d = cardDigits(n)
+  if (!/^\d+$/.test(d)) return n
+  if (d.length === 15 && /^3[47]/.test(d)) return `${d.slice(0, 4)} ${d.slice(4, 10)} ${d.slice(10)}`
+  return d.replace(/(\d{4})(?=\d)/g, '$1 ')
 }
 
 function Expiry({ it }: { it: Item }) {
