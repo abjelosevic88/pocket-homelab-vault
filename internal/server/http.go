@@ -50,6 +50,8 @@ func (s *Server) Router() http.Handler {
 		r.Route("/identity", func(r chi.Router) {
 			r.Use(middleware.Timeout(60 * time.Second))
 			r.Post("/connect/token", s.handleToken)
+			r.Get("/accounts/webauthn/assertion-options", s.handlePasskeyLoginOptions)
+			r.Post("/accounts/webauthn/assertion-options", s.handlePasskeyLoginOptions)
 			r.Post("/accounts/prelogin", s.handlePrelogin)
 			r.Post("/accounts/prelogin/password", s.handlePrelogin)
 			r.Post("/accounts/register", s.handleRegister)

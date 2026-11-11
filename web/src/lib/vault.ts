@@ -2,6 +2,7 @@
 // in to /identity with a hash of the master password, reads /api/sync and
 // decrypts here. The keys live in this tab's memory only; a reload locks.
 import { b64, decrypt, decryptBytes, encrypt, masterKey, masterPasswordHash, stretch, SymKey, type Kdf } from './crypto'
+import { passkeyAssertion, userKeyFromPasskey } from './passkey'
 
 export const TYPE_LOGIN = 1, TYPE_NOTE = 2, TYPE_CARD = 3, TYPE_IDENTITY = 4, TYPE_SSH = 5
 export const TYPE_KEY: Record<number, string> = { 1: 'login', 2: 'secureNote', 3: 'card', 4: 'identity', 5: 'sshKey', 6: 'bankAccount', 7: 'driversLicense', 8: 'passport' }
@@ -46,7 +47,11 @@ export interface Folder { id: string; name: string }
 export interface VaultStatus {
   has_vault: boolean; email: string; name?: string; server_url: string; kdf?: Kdf & { type: number }; hint?: string
   counts?: Record<string, number>; devices?: number; last_used?: string; two_factor?: boolean; created_at?: string; revision_date?: string; live_apps: number
+  passkeys?: number; passkeys_unlock?: number
 }
+
+/** A passkey signed in but can't open the vault (no PRF): the master password is still needed. */
+export class PasskeyCantUnlock extends Error { constructor() { super('This passkey signs you in but can’t unlock your vault here. Type your master password.') } }
 
 export class TwoFactorNeeded extends Error { constructor(readonly providers: string[]) { super('Enter the code from your authenticator app.') } }
 export class BWError extends Error { constructor(readonly status: number, msg: string) { super(msg) } }
@@ -101,6 +106,32 @@ export class Session {
     let user: Uint8Array
     try { user = await decryptBytes(j.Key, await stretch(mk)) } catch { throw new Error('Your vault key could not be opened with this password.') }
     const s = new Session(email, new SymKey(user))
+    s.access = j.access_token
+    s.refresh = j.refresh_token
+    return s
+  }
+
+  /**
+   * Signs in with a passkey and unlocks with it. expectEmail: the vault this
+   * page is for (a passkey for another person's vault is refused).
+   * pocketSession: also sign in to Pocket Vault itself (the sign-in page).
+   */
+  static async withPasskey(expectEmail?: string, pocketSession = false): Promise<Session> {
+    const a = await passkeyAssertion()
+    const form = new URLSearchParams({ grant_type: 'webauthn', token: a.token, deviceResponse: JSON.stringify(a.response), scope: 'api offline_access', client_id: 'web',
+      deviceType: String(deviceType()), deviceIdentifier: deviceId(), deviceName: 'Pocket Vault web' })
+    if (pocketSession) form.set('pocket_session', '1')
+    const res = await fetch('/identity/connect/token', { method: 'POST', body: form, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, credentials: 'same-origin' })
+    if (!res.ok) throw await bwErrorOf(res)
+    const j = await res.json()
+    let email = ''
+    try { email = JSON.parse(atob(j.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).email || '' } catch { /* checked below */ }
+    if (expectEmail && email.toLowerCase() !== expectEmail.toLowerCase()) throw new Error(`That passkey is for ${email || 'another vault'}, not ${expectEmail}.`)
+    const opt = j.UserDecryptionOptions?.WebAuthnPrfOption
+    if (!opt || !a.prf) throw new PasskeyCantUnlock()
+    let user: SymKey
+    try { user = await userKeyFromPasskey(opt, a.prf) } catch { throw new Error('This passkey couldn’t open your vault key. Use your master password, then add the passkey again.') }
+    const s = new Session(email, user)
     s.access = j.access_token
     s.refresh = j.refresh_token
     return s

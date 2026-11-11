@@ -72,6 +72,13 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 			token: f("twofactortoken", "two_factor_token", "twoFactorToken"), remember: f("twofactorremember", "two_factor_remember", "twoFactorRemember"),
 			authRequest: f("authrequest", "authRequest"),
 		})
+	case "webauthn":
+		s.passkeyLogin(w, r, loginForm{
+			clientID: f("client_id", "clientid"), scope: f("scope"),
+			deviceID: strings.ToLower(f("deviceidentifier", "device_identifier", "deviceIdentifier")), deviceName: f("devicename", "device_name", "deviceName"),
+			deviceType: f("devicetype", "device_type", "deviceType"), webauthnToken: f("token"), deviceResponse: f("deviceresponse", "deviceResponse", "device_response"),
+			pocketSession: f("pocket_session") == "1",
+		})
 	case "client_credentials":
 		bwErr(w, http.StatusBadRequest, "Signing in with an API key isn't available; sign in with your email and master password.")
 	case "authorization_code":
@@ -83,6 +90,8 @@ func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 
 type loginForm struct {
 	clientID, password, scope, username, deviceID, deviceName, deviceType, provider, token, remember, authRequest string
+	webauthnToken, deviceResponse                                                                                 string
+	pocketSession                                                                                                 bool // our web vault: sign in to Pocket Vault too
 }
 
 func (s *Server) refreshLogin(w http.ResponseWriter, r *http.Request, tok, clientID string) {
@@ -154,6 +163,16 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request, in loginF
 		bwErr(w, http.StatusBadRequest, "This vault has been switched off.")
 		return
 	}
+	dev, isNew := s.loginDevice(ctx, acct, in, ip)
+	rememberTok, ok := s.twoFactorStep(w, r, acct, dev, in, ip)
+	if !ok {
+		return
+	}
+	s.finishLogin(w, r, acct, dev, isNew, in, rememberTok, nil)
+}
+
+// loginDevice is the app signing in: known already, or new.
+func (s *Server) loginDevice(ctx context.Context, acct *store.VaultAccount, in loginForm, ip string) (*store.Device, bool) {
 	dtype := 14
 	if n, err := strconv.Atoi(in.deviceType); err == nil {
 		dtype = n
@@ -167,11 +186,16 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request, in loginF
 		dev = &store.Device{UserID: acct.UserID, UUID: in.deviceID, Name: in.deviceName, Type: dtype, RefreshToken: store.RandomToken(48)}
 	}
 	dev.Name, dev.Type, dev.LastIP, dev.ClientID = in.deviceName, dtype, ip, in.clientID
+	return dev, isNew
+}
 
-	rememberTok, ok := s.twoFactorStep(w, r, acct, dev, in, ip)
-	if !ok {
-		return
-	}
+// finishLogin saves the device, issues the tokens and answers with what the
+// app needs to unlock (prf: the keys a passkey opens, when it signed in with one).
+func (s *Server) finishLogin(w http.ResponseWriter, r *http.Request, acct *store.VaultAccount, dev *store.Device, isNew bool, in loginForm, rememberTok string, prf map[string]any) {
+	ctx := r.Context()
+	ip := clientIP(r)
+	dev.LastIP = ip
+	dtype := dev.Type
 	if err := s.store.SaveDevice(ctx, dev, true); err != nil {
 		s.fail(w, err, "save device")
 		return
@@ -183,31 +207,39 @@ func (s *Server) passwordLogin(w http.ResponseWriter, r *http.Request, in loginF
 	}
 	s.clearFailures(acct.UserID)
 	dt := dtype
+	detail := ""
+	if prf != nil {
+		detail = "with a passkey"
+	}
 	if isNew {
-		s.store.AddVaultEvent(ctx, acct.UserID, store.VaultEvent{Kind: "new_device", DeviceName: in.deviceName, DeviceType: &dt, IP: ip})
+		s.store.AddVaultEvent(ctx, acct.UserID, store.VaultEvent{Kind: "new_device", DeviceName: in.deviceName, DeviceType: &dt, IP: ip, Detail: detail})
 		s.securityAlert(ctx, acct.UserID, "new_device", "New sign-in to your vault",
 			deviceTypeName(dtype)+" ("+in.deviceName+") signed in to your vault from "+ip+". If that wasn't you, change your master password.", "info")
 		s.publish(ctx, acct.UserID, "vault.device_signed_in", dev.UUID, map[string]any{"device": in.deviceName, "device_type": deviceTypeName(dtype), "ip": ip})
 	} else {
-		s.store.AddVaultEvent(ctx, acct.UserID, store.VaultEvent{Kind: "signed_in", DeviceName: in.deviceName, DeviceType: &dt, IP: ip})
+		s.store.AddVaultEvent(ctx, acct.UserID, store.VaultEvent{Kind: "signed_in", DeviceName: in.deviceName, DeviceType: &dt, IP: ip, Detail: detail})
 	}
 	var keys any
 	if acct.PrivateKey != "" {
 		keys = map[string]any{"publicKeyEncryptionKeyPair": map[string]any{"wrappedPrivateKey": acct.PrivateKey, "publicKey": acct.PublicKey, "Object": "publicKeyEncryptionKeyPair"}, "Object": "privateKeys"}
+	}
+	opts := map[string]any{
+		"HasMasterPassword": true,
+		"MasterPasswordUnlock": map[string]any{
+			"Kdf":                       map[string]any{"KdfType": acct.KdfType, "Iterations": acct.KdfIterations, "Memory": kdfNum(acct.KdfMemory), "Parallelism": kdfNum(acct.KdfParallelism)},
+			"MasterKeyEncryptedUserKey": acct.AKey, "MasterKeyWrappedUserKey": acct.AKey, "Salt": acct.Email,
+		},
+		"Object": "userDecryptionOptions",
+	}
+	if len(prf) > 0 {
+		opts["WebAuthnPrfOption"] = prf
 	}
 	res := map[string]any{
 		"access_token": access, "expires_in": exp, "token_type": "Bearer", "refresh_token": refresh,
 		"PrivateKey": nilIfEmpty(acct.PrivateKey), "Kdf": acct.KdfType, "KdfIterations": acct.KdfIterations, "KdfMemory": kdfNum(acct.KdfMemory), "KdfParallelism": kdfNum(acct.KdfParallelism),
 		"ResetMasterPassword": false, "ForcePasswordReset": false, "MasterPasswordPolicy": map[string]any{"Object": "masterPasswordPolicy"},
 		"scope": "api offline_access", "AccountKeys": keys, "unofficialServer": true,
-		"UserDecryptionOptions": map[string]any{
-			"HasMasterPassword": true,
-			"MasterPasswordUnlock": map[string]any{
-				"Kdf":                       map[string]any{"KdfType": acct.KdfType, "Iterations": acct.KdfIterations, "Memory": kdfNum(acct.KdfMemory), "Parallelism": kdfNum(acct.KdfParallelism)},
-				"MasterKeyEncryptedUserKey": acct.AKey, "MasterKeyWrappedUserKey": acct.AKey, "Salt": acct.Email,
-			},
-			"Object": "userDecryptionOptions",
-		},
+		"UserDecryptionOptions": opts,
 	}
 	if acct.AKey != "" {
 		res["Key"] = acct.AKey

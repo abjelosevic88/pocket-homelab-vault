@@ -7,7 +7,8 @@ import { useApp } from '../lib/app-context'
 import { useVault } from '../lib/vault-context'
 import { newVaultKeys } from '../lib/crypto'
 import { strength } from '../lib/generator'
-import { TwoFactorNeeded } from '../lib/vault'
+import { PasskeyCantUnlock, TwoFactorNeeded } from '../lib/vault'
+import { passkeysAvailable } from '../lib/passkey'
 import { Icon } from './icons'
 import { Field, Loading, Switch, errMsg, useToast } from './ui'
 
@@ -19,7 +20,7 @@ export function LockScreen() {
 }
 
 function Unlock() {
-  const { status, unlock } = useVault()
+  const { status, unlock, unlockWithPasskey } = useVault()
   const [pw, setPw] = useState('')
   const [show, setShow] = useState(false)
   const [code, setCode] = useState('')
@@ -28,6 +29,13 @@ function Unlock() {
   const [hint, setHint] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [pkBusy, setPkBusy] = useState(false)
+  const canPasskey = passkeysAvailable() && (status?.passkeys_unlock || 0) > 0
+  const withPasskey = async () => {
+    setPkBusy(true); setErr('')
+    try { await unlockWithPasskey() }
+    catch (e) { setErr(e instanceof PasskeyCantUnlock ? e.message : errMsg(e)) } finally { setPkBusy(false) }
+  }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!pw) return
@@ -44,9 +52,15 @@ function Unlock() {
         <div className="lock-ico"><Icon name="lock" size={26} /></div>
         <h2>Your vault is locked</h2>
         <p className="muted">{status?.email}</p>
+        {canPasskey && <>
+          <button type="button" className="btn primary lg block-btn" onClick={withPasskey} disabled={pkBusy || busy} autoFocus>
+            {pkBusy ? <><span className="spinner" />Waiting for your passkey…</> : <><Icon name="fingerprint" size={17} />Unlock with a passkey</>}
+          </button>
+          <div className="login-or"><span>or with your master password</span></div>
+        </>}
         <Field label="Master password">
           <div className="input-group">
-            <input type={show ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} autoFocus autoComplete="current-password" spellCheck={false} disabled={busy} />
+            <input type={show ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} autoFocus={!canPasskey} autoComplete="current-password" spellCheck={false} disabled={busy} />
             <button type="button" className="btn" onClick={() => setShow(s => !s)} aria-label={show ? 'Hide' : 'Show'} title={show ? 'Hide' : 'Show'}><Icon name={show ? 'eye-off' : 'eye'} size={16} /></button>
           </div>
         </Field>
@@ -57,7 +71,7 @@ function Unlock() {
           <label className="check-row small"><Switch checked={remember} onChange={setRemember} size="sm" label="Remember" />Don’t ask for a code in this browser for 30 days</label>
         </>}
         {err && <div className="callout danger"><Icon name="alert" size={15} /><span>{err}</span></div>}
-        <button className="btn primary lg block-btn" disabled={busy || !pw || (needCode && !code)}>{busy ? <><span className="spinner" />Unlocking…</> : <><Icon name="unlock" size={16} />Unlock</>}</button>
+        <button className={`btn lg block-btn ${canPasskey ? '' : 'primary'}`} disabled={busy || !pw || (needCode && !code)}>{busy ? <><span className="spinner" />Unlocking…</> : <><Icon name="unlock" size={16} />Unlock</>}</button>
         <div className="lock-foot">
           {status?.hint ? (hint ? <span className="muted small">Hint: {status.hint}</span> : <button type="button" className="linkish small" onClick={() => setHint(true)}>Show my hint</button>) : <span />}
           <span className="muted small">Your key is worked out here; the password never leaves this page.</span>

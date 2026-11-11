@@ -120,3 +120,11 @@
 .set-nav-item:nth-child(7) { animation-delay: .21s; } .set-nav-item:nth-child(8) { animation-delay: .235s; }
 .set-nav-item:nth-child(9) { animation-delay: .26s; } .set-nav-item:nth-child(n+10) { animation-delay: .285s; }
 .set-inner { animation: set-swap .26s var(--ease) both; }
+
+/* passkeys */
+.pk-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; }
+.pk-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--hairline); }
+.pk-list li:first-child { border-top: 0; padding-top: 0; }
+.pk-list li > svg { color: var(--accent-ink); flex-shrink: 0; }
+.pk-list .grow { min-width: 0; }
+.login-card .btn.block + .btn.block, .login-card .btn.block + a.btn.block { margin-top: 10px; }

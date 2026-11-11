@@ -4,6 +4,9 @@ import { api, V1 } from '../lib/api'
 import { useApp } from '../lib/app-context'
 import { Field } from '../components/ui'
 import { Icon } from '../components/icons'
+import { passkeysAvailable } from '../lib/passkey'
+import { PasskeyCantUnlock, Session } from '../lib/vault'
+import { handOverSession } from '../lib/vault-context'
 
 export default function Login({ mode }: { mode: 'login' | 'setup' }) {
   const { status, user, refresh } = useApp()
@@ -24,6 +27,13 @@ export default function Login({ mode }: { mode: 'login' | 'setup' }) {
   }
   const from = (loc.state as { from?: string })?.from || '/'
   const sso = mode === 'login' && status?.oidc
+  const passkey = mode === 'login' && !!status?.passkeys && passkeysAvailable()
+  const withPasskey = async () => {
+    setBusy(true); setErr('')
+    try { handOverSession(await Session.withPasskey(undefined, true)) }
+    catch (e) { if (!(e instanceof PasskeyCantUnlock)) { setErr((e as Error).message); setBusy(false); return } }
+    try { await refresh(); navigate(from, { replace: true }) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
 
   const title = status?.title || 'Pocket Vault'
@@ -35,8 +45,14 @@ export default function Login({ mode }: { mode: 'login' | 'setup' }) {
           <h1>{title}</h1>
           <p className="login-tagline">{mode === 'setup' ? 'Welcome! Create the first account to get started.' : 'Your passwords, on your own server.'}</p>
         </div>
+        {passkey && <>
+          <button type="button" className="btn primary lg block" onClick={withPasskey} disabled={busy}>
+            <Icon name="fingerprint" size={17} />{busy ? 'Waiting for your passkey…' : 'Sign in with a passkey'}
+          </button>
+          {!sso && <div className="login-or"><span>or with a password</span></div>}
+        </>}
         {sso && <>
-          <a className="btn primary lg block" href={`${V1}/auth/oidc/start?next=${encodeURIComponent(from)}`}>
+          <a className={`btn ${passkey ? '' : 'primary'} lg block`} href={`${V1}/auth/oidc/start?next=${encodeURIComponent(from)}`}>
             <Icon name="key" size={16} />Sign in with {status?.oidc_name || 'Pocket Core'}
           </a>
           <div className="login-or"><span>or with a password</span></div>
@@ -48,7 +64,7 @@ export default function Login({ mode }: { mode: 'login' | 'setup' }) {
             <input type="password" value={form.password} onChange={set('password')} required minLength={mode === 'setup' ? 8 : 1} autoComplete={mode === 'setup' ? 'new-password' : 'current-password'} />
           </Field>
           {err && <div className="callout danger"><Icon name="alert" size={15} /><span>{err}</span></div>}
-          <button className={`btn lg block ${sso ? '' : 'primary'}`} disabled={busy}>{busy ? 'Please wait…' : mode === 'setup' ? 'Create account' : 'Sign in'}</button>
+          <button className={`btn lg block ${sso || passkey ? '' : 'primary'}`} disabled={busy}>{busy ? 'Please wait…' : mode === 'setup' ? 'Create account' : 'Sign in'}</button>
         </form>
         {mode === 'setup' && <p className="login-note">You become the admin. Add the household under Settings → People; everyone gets their own vault with their own master password, which nobody else can open.</p>}
       </div>

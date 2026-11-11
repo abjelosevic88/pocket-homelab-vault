@@ -174,7 +174,7 @@ func (s *Store) DeleteVault(ctx context.Context, uid int64) error {
 	if err != nil {
 		return err
 	}
-	for _, t := range []string{"vault_ciphers", "vault_folders", "vault_devices", "vault_twofactor", "vault_health", "vault_reminders", "vault_accounts"} {
+	for _, t := range []string{"vault_ciphers", "vault_folders", "vault_devices", "vault_twofactor", "vault_health", "vault_reminders", "vault_passkeys", "vault_accounts"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+t+` WHERE user_id = ?`, uid); err != nil {
 			_ = tx.Rollback()
 			return err

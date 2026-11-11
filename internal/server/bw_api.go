@@ -146,6 +146,13 @@ func (s *Server) bwRoutes(r chi.Router) {
 			r.Put(p, notYet("Only an authenticator app is available for two-step login here."))
 		}
 
+		r.Get("/webauthn", s.handleBWPasskeys)
+		r.Post("/webauthn", s.handleBWPasskeyCreate)
+		r.Put("/webauthn", s.handleBWPasskeyUpdate)
+		r.Post("/webauthn/attestation-options", s.handleBWPasskeyCreateOptions)
+		r.Post("/webauthn/assertion-options", s.handleBWPasskeyAssertionOptions)
+		r.Post("/webauthn/{id}/delete", s.handleBWPasskeyDelete)
+
 		r.Get("/settings/domains", s.handleBWDomains)
 		r.Post("/settings/domains", s.handleBWPutDomains)
 		r.Put("/settings/domains", s.handleBWPutDomains)
@@ -154,7 +161,7 @@ func (s *Server) bwRoutes(r chi.Router) {
 		// the apps show nothing instead of an error.
 		empty := func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, bwList([]any{})) }
 		for _, p := range []string{"/collections", "/sends", "/emergency-access/trusted", "/emergency-access/granted", "/auth-requests", "/auth-requests/pending",
-			"/tasks", "/notifications", "/webauthn", "/organizations", "/policies", "/providers"} {
+			"/tasks", "/notifications", "/organizations", "/policies", "/providers"} {
 			r.Get(p, empty)
 		}
 		for _, p := range []string{"/sends", "/sends/file/v2", "/sends/file"} {

@@ -10,6 +10,7 @@ const P: Record<string, string> = {
   'shield-check': 'M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6zM9 12l2 2 4-4',
   'shield-alert': 'M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6zM12 8v4M12 16h.01',
   unlock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 7.6-1.7',
+  fingerprint: 'M12 11v3a8 8 0 0 1-1.5 4.7M8.6 6.3A6 6 0 0 1 18 11v1.5M6 10a6 6 0 0 1 .9-3.1M6 13.5v-2.6M9 20a10 10 0 0 0 1-2M15 11.5a3 3 0 0 0-6 0v1a11 11 0 0 1-1.3 5M17.7 17a15 15 0 0 0 .3-2.5M14.6 20.6a13 13 0 0 0 .4-3.3',
   'rotate-ccw': 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5',
   'arrow-left-right': 'M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4',
   qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2M14 18h2v2M18 18h2v2h-2',

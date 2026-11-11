@@ -5,7 +5,7 @@ import type { Settings, User } from './types'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
-interface AuthStatus { needs_setup: boolean; auth_mode: string; authenticated: boolean; user: User | null; version: string; title: string; oidc?: boolean; oidc_name?: string }
+interface AuthStatus { needs_setup: boolean; auth_mode: string; authenticated: boolean; user: User | null; version: string; title: string; oidc?: boolean; oidc_name?: string; passkeys?: boolean }
 interface AppState {
   status: AuthStatus | null
   user: User | null

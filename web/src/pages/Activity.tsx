@@ -24,6 +24,9 @@ export const EVENT: Record<string, [string, string, string]> = {
   imported: ['Items imported', 'upload', ''],
   created: ['Vault created', 'shield-check', 'ok'],
   purged: ['Every item deleted', 'trash', 'warn'],
+  passkey_added: ['Passkey added', 'fingerprint', 'accent'],
+  passkey_removed: ['Passkey removed', 'fingerprint', ''],
+  passkey_unlock_on: ['Passkey can now unlock', 'fingerprint', 'accent'],
 }
 
 function appName(d: { name: string; type_name: string }) {

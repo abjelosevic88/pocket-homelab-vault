@@ -54,6 +54,15 @@ func (s *Server) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
 	out["created_at"] = store.BWDate(a.CreatedAt)
 	out["revision_date"] = a.RevisionDate
 	out["live_apps"] = s.bw.hub.countFor(a.UUID)
+	pks, _ := s.store.ListPasskeys(ctx, u.ID)
+	unlock := 0
+	for _, p := range pks {
+		if p.Unlocks() {
+			unlock++
+		}
+	}
+	out["passkeys"] = len(pks)
+	out["passkeys_unlock"] = unlock
 	writeJSON(w, http.StatusOK, out)
 }
 

@@ -171,6 +171,7 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		"title":         st.Title,
 		"oidc":          s.oidcEnabled() && s.cfg.AuthMode == "local",
 		"oidc_name":     s.oidcName(),
+		"passkeys":      s.cfg.AuthMode == "local" && s.store.AnyPasskeys(r.Context()),
 	})
 }
 

@@ -9,6 +9,7 @@ import { DATE_FORMATS, TIME_FORMATS, fmtBytes, fmtDateTime, type DateFormat, typ
 import { encryptBytes, masterKey, masterPasswordHash, stretch } from '../lib/crypto'
 import { strength } from '../lib/generator'
 import { exportEncrypted, exportPlain, importFile } from '../lib/transfer'
+import { addPasskey, enablePasskeyUnlock, passkeysAvailable } from '../lib/passkey'
 import { Avatar, Confirm, CoreHint, Field, Loading, Modal, Segmented, SettingRow, Switch, Tabs, errMsg, useAsync, useIsMobile, useToast } from '../components/ui'
 import { Icon } from '../components/icons'
 import { Select } from '../components/Select'
@@ -19,7 +20,7 @@ type TabId = 'general' | 'security' | 'notifications' | 'apps' | 'profile' | 'pe
 
 const TABS: { id: TabId; label: string; icon: string; sub: string }[] = [
   { id: 'general', label: 'General', icon: 'sliders', sub: 'Locking, the clipboard, website icons and how dates look.' },
-  { id: 'security', label: 'Security', icon: 'shield', sub: 'Your master password, two-step login and how your key is made.' },
+  { id: 'security', label: 'Security', icon: 'shield', sub: 'Your master password, passkeys, two-step login and how your key is made.' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', sub: 'Hear about new sign-ins, wrong tries and changes to your vault’s security.' },
   { id: 'apps', label: 'Connected apps', icon: 'layers', sub: 'Pocket Renewals (reminders before a card runs out) and what your other Pocket apps may know.' },
   { id: 'profile', label: 'Profile', icon: 'user', sub: 'Your name, email and the password for signing in to Pocket Vault.' },
@@ -163,6 +164,7 @@ function Security() {
     <div className="stack loose">
       {state !== 'unlocked' && <NeedUnlock />}
       <MasterPassword disabled={state !== 'unlocked'} />
+      <Passkeys disabled={state !== 'unlocked'} />
       <TwoStep disabled={state !== 'unlocked'} />
       <Section title="How your key is made" icon="key" sub="The master password becomes your key with a deliberately slow function, so guessing is slow too.">
         <dl className="set-dl">
@@ -209,6 +211,97 @@ function MasterPassword({ disabled }: { disabled: boolean }) {
         <Field label="Hint (optional)"><input value={f.hint} onChange={e => setF({ ...f, hint: e.target.value })} maxLength={200} disabled={disabled} /></Field>
         <div className="row"><button className="btn primary" disabled={disabled || !ok || busy}>{busy ? 'Changing…' : 'Change master password'}</button></div>
       </form>
+    </Section>
+  )
+}
+
+interface PasskeyRow { id: string; name: string; prfStatus: number; creationDate: string; lastUsedDate: string | null }
+
+function guessPasskeyName(): string {
+  const ua = navigator.userAgent
+  if (/iPhone/.test(ua)) return 'iPhone'
+  if (/iPad/.test(ua)) return 'iPad'
+  if (/Android/.test(ua)) return 'Android phone'
+  if (/Mac OS X/.test(ua)) return 'Mac'
+  if (/Windows/.test(ua)) return 'Windows Hello'
+  return 'Passkey'
+}
+
+function Passkeys({ disabled }: { disabled: boolean }) {
+  const { status, session, reloadStatus } = useVault()
+  const { toast } = useToast()
+  const [list, setList] = useState<PasskeyRow[] | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState(guessPasskeyName)
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [removing, setRemoving] = useState<PasskeyRow | null>(null)
+  const [unlocking, setUnlocking] = useState(false)
+  const supported = passkeysAvailable()
+  const load = async () => { if (session) setList((await session.call<{ data: PasskeyRow[] }>('GET', '/webauthn')).data) }
+  useEffect(() => { load().catch(() => setList([])) }, [session]) // eslint-disable-line react-hooks/exhaustive-deps
+  const hash = async () => { if (!status?.kdf) throw new Error('No vault'); return hashOf(pw, status.email, status.kdf) }
+  const wrongPw = (e: unknown) => errMsg(e).replace('Invalid password', 'That master password isn’t right.')
+  const add = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!session || !pw) return
+    setBusy(true)
+    try {
+      const r = await addPasskey(session.call.bind(session), session.key, await hash(), name.trim() || 'Passkey')
+      toast(r.unlocks ? 'Passkey added. It signs in and unlocks your vault.' : 'Passkey added for signing in. This browser or key can’t unlock with it, so the master password is still asked.', 'ok')
+      setAdding(false); setPw(''); setName(guessPasskeyName()); await load(); await reloadStatus()
+    } catch (e) { toast(wrongPw(e), 'err') } finally { setBusy(false) }
+  }
+  const remove = async () => {
+    if (!session || !removing) return
+    setBusy(true)
+    try { await session.call('POST', `/webauthn/${removing.id}/delete`, { masterPasswordHash: await hash() }); toast('Passkey removed'); setRemoving(null); setPw(''); await load(); await reloadStatus() }
+    catch (e) { toast(wrongPw(e), 'err') } finally { setBusy(false) }
+  }
+  const turnOnUnlock = async () => {
+    if (!session) return
+    setBusy(true)
+    try { await enablePasskeyUnlock(session.call.bind(session), session.key, await hash()); toast('That passkey now unlocks your vault too'); setUnlocking(false); setPw(''); await load(); await reloadStatus() }
+    catch (e) { toast(wrongPw(e), 'err') } finally { setBusy(false) }
+  }
+  const n = list?.length || 0
+  return (
+    <Section title="Passkeys" icon="fingerprint" actions={n > 0 ? <span className="badge ok">{n}</span> : <span className="badge">none</span>}
+      sub="Unlock with Touch ID, Face ID, Windows Hello, your phone or a security key instead of typing the master password. The passkey opens your key here in the browser; the server still can’t read anything. Keep your master password: it’s still the way in for the Bitwarden apps and if a passkey is lost.">
+      {!supported && <div className="callout warn mb"><Icon name="info" size={15} /><span>This browser can’t use passkeys.</span></div>}
+      {list && list.length > 0 && <ul className="pk-list">
+        {list.map(p => <li key={p.id}>
+          <Icon name="fingerprint" size={18} />
+          <div className="grow">
+            <b>{p.name}</b>
+            <div className="muted small">{p.prfStatus === 0 ? 'Signs in and unlocks' : 'Signs in only — the master password is still asked'} · added {fmtDateTime(p.creationDate)}{p.lastUsedDate ? ` · last used ${fmtDateTime(p.lastUsedDate)}` : ''}</div>
+          </div>
+          <button type="button" className="btn sm danger-ghost" disabled={disabled} onClick={() => { setRemoving(p); setPw('') }}>Remove</button>
+        </li>)}
+      </ul>}
+      {list && list.some(p => p.prfStatus !== 0) && !unlocking && <button type="button" className="linkish small mb" disabled={disabled} onClick={() => { setUnlocking(true); setPw('') }}>Let a sign-in-only passkey unlock too…</button>}
+      {unlocking ? (
+        <div className="stack">
+          <Field label="Master password" help="Then pick the passkey when the browser asks."><input type="password" value={pw} onChange={e => setPw(e.target.value)} autoFocus autoComplete="current-password" /></Field>
+          <div className="row"><button type="button" className="btn" onClick={() => setUnlocking(false)}>Cancel</button><button type="button" className="btn primary" disabled={!pw || busy} onClick={turnOnUnlock}>{busy ? 'Waiting for your passkey…' : 'Continue'}</button></div>
+        </div>
+      ) : adding ? (
+        <form onSubmit={add} className="stack">
+          <div className="two-col tight">
+            <Field label="Name" help="So you can tell them apart."><input value={name} onChange={e => setName(e.target.value)} maxLength={50} /></Field>
+            <Field label="Master password" help="Needed to add one."><input type="password" value={pw} onChange={e => setPw(e.target.value)} autoFocus autoComplete="current-password" /></Field>
+          </div>
+          <p className="muted small">The browser asks once to make the passkey and may ask once more to set up unlocking.</p>
+          <div className="row"><button type="button" className="btn" onClick={() => { setAdding(false); setPw('') }}>Cancel</button><button className="btn primary" disabled={!pw || busy}>{busy ? <><span className="spinner" />Waiting for your passkey…</> : 'Add passkey'}</button></div>
+        </form>
+      ) : <div className="row"><button type="button" className="btn primary" disabled={disabled || !supported || n >= 10} onClick={() => setAdding(true)}><Icon name="plus" size={15} />Add a passkey</button></div>}
+      {removing && <Modal title={`Remove “${removing.name}”?`} onClose={() => setRemoving(null)} size="sm">
+        <div className="stack">
+          <p>It won’t sign in to your vault any more. Also delete it from the device or password manager that holds it, if you like.</p>
+          <Field label="Master password"><input type="password" value={pw} onChange={e => setPw(e.target.value)} autoFocus autoComplete="current-password" /></Field>
+          <div className="form-actions"><button type="button" className="btn" onClick={() => setRemoving(null)}>Cancel</button><button type="button" className="btn danger" disabled={!pw || busy} onClick={remove}>Remove</button></div>
+        </div>
+      </Modal>}
     </Section>
   )
 }

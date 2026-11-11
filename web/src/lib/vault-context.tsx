@@ -18,6 +18,7 @@ interface VaultCtx {
   syncing: boolean
   syncedAt: number
   unlock: (password: string, code?: string, remember?: boolean) => Promise<void>
+  unlockWithPasskey: () => Promise<void>
   lock: () => void
   reloadStatus: () => Promise<void>
   sync: () => Promise<void>
@@ -33,6 +34,11 @@ interface VaultCtx {
 }
 
 const Ctx = createContext<VaultCtx>(null!)
+
+// A vault unlocked on the sign-in page (passkey: signed in and unlocked in
+// one go), picked up once the app knows who is signed in.
+let handedOver: Session | null = null
+export function handOverSession(s: Session) { handedOver = s }
 export const useVault = () => useContext(Ctx)
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
@@ -87,6 +93,25 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setState('unlocked')
   }, [status, syncWith, lock])
 
+  const unlockWithPasskey = useCallback(async () => {
+    const st = status || await api.get<VaultStatus>(`${V1}/vault/status`)
+    const s = await Session.withPasskey(st.email)
+    s.onExpired = () => lock()
+    await syncWith(s)
+    setSession(s)
+    setState('unlocked')
+  }, [status, syncWith, lock])
+
+  // the session the sign-in page unlocked
+  useEffect(() => {
+    const s = handedOver
+    if (!s || !status?.has_vault) return
+    handedOver = null
+    if (s.email.toLowerCase() !== status.email.toLowerCase()) return
+    s.onExpired = () => lock()
+    syncWith(s).then(() => { setSession(s); setState('unlocked') }).catch(() => {})
+  }, [status, syncWith, lock])
+
   // lock after the idle time (0 = only when the tab closes)
   const lockMin = settings?.lock_minutes ?? 15
   useEffect(() => {
@@ -127,7 +152,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [items, after])
 
   const value = useMemo<VaultCtx>(() => ({
-    state, status, session, items, folders, syncing, syncedAt, unlock, lock, reloadStatus, sync, saveItem,
+    state, status, session, items, folders, syncing, syncedAt, unlock, unlockWithPasskey, lock, reloadStatus, sync, saveItem,
     deleteItem: async (it, forever) => { const s = need(); await s.call(forever ? 'DELETE' : 'PUT', forever ? `/ciphers/${it.id}` : `/ciphers/${it.id}/delete`); await after() },
     restoreItem: async it => { const s = need(); await s.call('PUT', `/ciphers/${it.id}/restore`); await after() },
     setFavorite: async (it, fav) => { const s = need(); await s.call('PUT', `/ciphers/${it.id}/partial`, { folderId: it.folderId, favorite: fav }); await after() },
@@ -141,6 +166,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     },
     deleteFolder: async id => { const s = need(); await s.call('DELETE', `/folders/${id}`); await after() },
     emptyBin: async () => { const s = need(); const ids = items.filter(i => i.deletedDate).map(i => i.id); if (ids.length) await s.call('POST', '/ciphers/delete', { ids }); await after() },
-  }), [state, status, session, items, folders, syncing, syncedAt, unlock, lock, reloadStatus, sync, saveItem, after])
+  }), [state, status, session, items, folders, syncing, syncedAt, unlock, unlockWithPasskey, lock, reloadStatus, sync, saveItem, after])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
